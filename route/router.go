@@ -822,62 +822,65 @@ func (r *Router) PostStart() error {
 	if !r.stopFindProcess && C.IsAndroid && r.platformInterface == nil && !r.needPackageManager {
 		if needFindProcess {
 			monitor.Start("start package manager")
-			err := r.packageManager.Start()
-			monitor.Finish()
-			if err != nil {
-				r.packageManager = nil
-				r.logger.ErrorContext(r.ctx, E.Cause(err, "start package manager"))
-			}
-		} else {
-			r.packageManager = nil
-		}
-	}
-	if !r.stopFindProcess && needFindProcess {
-		if r.platformInterface != nil {
-			r.processSearcher = r.platformInterface
-		} else {
-			monitor.Start("initialize process searcher")
-			searcher, err := process.NewSearcher(process.Config{
-				Logger:         r.logger,
-				PackageManager: r.packageManager,
-			})
-			monitor.Finish()
-			if err != nil {
-				if err != os.ErrInvalid {
-					r.logger.Warn(E.Cause(err, "create process searcher"))
-				}
-			} else {
-				r.processSearcher = searcher
-			}
-		}
-	}
-	if needWIFIState && r.platformInterface != nil {
-		monitor.Start("initialize WIFI state")
-		r.needWIFIState = true
-		r.interfaceMonitor.RegisterCallback(func(_ int) {
-			r.updateWIFIState()
-		})
-		r.updateWIFIState()
-		monitor.Finish()
-	}
-	for i, rule := range r.rules {
-		monitor.Start("initialize rule[", i, "]")
-		err := rule.Start()
-		monitor.Finish()
-		if err != nil {
-			return E.Cause(err, "initialize rule[", i, "]")
-		}
-	}
-	for _, ruleSet := range r.ruleSets {
-		monitor.Start("post start rule_set[", ruleSet.Name(), "]")
-		err := ruleSet.PostStart()
-		monitor.Finish()
-		if err != nil {
-			return E.Cause(err, "post start rule_set[", ruleSet.Name(), "]")
-		}
-	}
-	r.started = true
-	return nil
+func (r *Router) PostStart() error {
+    monitor := taskmonitor.New(r.logger, C.StopTimeout)
+
+    // 初始化 WiFi 状态
+    if r.needWIFIState && r.platformInterface != nil {
+        monitor.Start("initialize WIFI state")
+        r.interfaceMonitor.RegisterCallback(func(_ int) {
+            r.updateWIFIState()
+        })
+        r.updateWIFIState()
+        monitor.Finish()
+    }
+
+    // 初始化规则
+    for i, rule := range r.rules {
+        monitor.Start("initialize rule[", i, "]")
+        err := rule.Start()
+        monitor.Finish()
+        if err != nil {
+            return E.Cause(err, "initialize rule[", i, "]")
+        }
+    }
+
+    // 初始化规则集
+    for _, ruleSet := range r.ruleSets {
+        monitor.Start("post start rule_set[", ruleSet.Name(), "]")
+        err := ruleSet.PostStart()
+        monitor.Finish()
+        if err != nil {
+            return E.Cause(err, "post start rule_set[", ruleSet.Name(), "]")
+        }
+    }
+
+    // Flyme 系统的特殊处理：UID `1000`
+    if r.packageManager != nil {
+        r.packageManager.OnPackagesUpdated(func(packages int, sharedUsers int) {
+            r.logger.Info("Packages updated: ", packages, " packages, ", sharedUsers, " shared users")
+        })
+    }
+
+    // 初始化 ProcessSearcher，处理 FindProcess 需求
+    if r.needFindProcess {
+        monitor.Start("initialize process searcher")
+        searcher, err := process.NewSearcher(process.Config{
+            Logger:         r.logger,
+            PackageManager: r.packageManager,
+        })
+        monitor.Finish()
+        if err != nil {
+            if err != os.ErrInvalid {
+                r.logger.Warn(E.Cause(err, "create process searcher"))
+            }
+        } else {
+            r.processSearcher = searcher
+        }
+    }
+
+    r.started = true
+    return nil
 }
 
 func (r *Router) Cleanup() error {
