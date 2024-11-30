@@ -25,6 +25,13 @@ func (s *androidSearcher) FindProcessInfo(ctx context.Context, network string, s
 	info := Info{
 		UserId: int32(uid),
 	}
+	// Flyme 特例处理：UID 为 1000
+        if uid == 1000 {
+        info.PackageName = "system (shared UID)"
+        info.UserId = int32(uid)
+                return &info, nil
+        }
+	
 	if processPath, _ := resolveProcessNameByProcSearch(inode, uid); processPath != "" {
 		info.ProcessPath = processPath
 		if s.packageManager != nil {
